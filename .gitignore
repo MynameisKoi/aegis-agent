@@ -3,6 +3,5 @@ __pycache__/
 *.class
 .venv/
 *.jsonl
-vuln_report.json
 .env
 !tasks/mock_env/.env

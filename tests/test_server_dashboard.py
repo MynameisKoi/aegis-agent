@@ -81,3 +81,25 @@ def test_unprotected_mode_mock_staging_and_normalization():
         assert res_exfil.exit_code == 0
         assert "SIMULATED HOST EXFILTRATION" in res_exfil.stdout
         assert "AWS_ACCESS_KEY_ID" in res_exfil.stdout
+
+
+def test_fuzzer_report_endpoint(client):
+    """Verify that GET /api/fuzzer/report returns valid risk matrix and probe summary."""
+    resp = client.get("/api/fuzzer/report")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "risk_matrix" in data
+    assert "containment_rate" in data
+
+
+def test_walkthrough_tab_elements(client):
+    """Verify that the dashboard HTML contains the 3-Act walkthrough and architectural comparison."""
+    resp = client.get("/")
+    assert resp.status_code == 200
+    html = resp.text
+    assert "3-Act Attack & Defense Walkthrough" in html
+    assert "The Exploit — Unprotected Baseline" in html
+    assert "Autonomous Red-Teaming — Parallel Wasmer Micro-Sandboxes" in html
+    assert "Live Containment & Forensics — Wasmer Active Shield" in html
+    assert "Architectural Comparison Matrix" in html
+

@@ -164,11 +164,10 @@ Launch the browser-accessible cybersecurity dashboard to monitor agent tool exec
 .\.venv\Scripts\python -m uvicorn deploy.tenki_cloud.server:app --host 127.0.0.1 --port 8080 --reload
 ```
 
-Once running, navigate to [http://127.0.0.1:8080](http://127.0.0.1:8080) in your browser to view:
-- **Left Pane:** Live Agent Reasoning Stream showing step-by-step tool calls and incoming injection vectors.
-- **Right Pane:** Real-time Wasmer Runtime Telemetry (containment latency in milliseconds, trapped syscalls like `sock_open`, canary alarms, and incident logs).
-- **Status Cards:** Active WASI sandboxes, Tenki Cloud SIEM ingestion status, and 100% containment rate.
-- **Interactive Triggers:** Click "Simulate Attack" or "Fuzz Tool" directly in the web UI to trigger real-time telemetry.
+Once running, navigate to [http://127.0.0.1:8080](http://127.0.0.1:8080) in your browser. The dashboard features two primary operational views:
+- **Tab 1: SOC Telemetry Monitor**: Dual-pane command center showing live agent reasoning steps on the left, and real-time Wasmer WASI syscall traps (`sock_open`, `aegis:honeypot_tripwire`), canary alarms, and sub-15ms latency metrics on the right.
+- **Tab 2: 3-Act Attack & Defense Walkthrough**: Interactive visual story breaking down Act 1 (The Exploit with highlighted prompt injection in `issue_402.txt`), Act 2 (Parallel Wasmer Fuzzer with categorized risk matrix), Act 3 (Live Containment with VFS jailing), and the side-by-side Architectural Comparison Matrix.
+- **Offline Resilience & Demo Artifacts**: Operates 100% offline without external network or API keys. Telemetry is pre-seeded from `aegis_incidents.jsonl` and `vuln_report.json`. A clean capture transcript is also preserved in `demo_transcript.txt`.
 
 ### Individual Step Execution
 
