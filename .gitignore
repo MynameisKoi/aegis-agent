@@ -1,0 +1,7 @@
+﻿__pycache__/
+*.py[cod]
+*.class
+.venv/
+*.jsonl
+vuln_report.json
+.env
