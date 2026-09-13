@@ -11,18 +11,23 @@ requires-python = ">=3.11"
 authors = [
     { name = "AegisAgent Security Team" }
 ]
+# Core runtime dependencies only — no test or LLM-API deps here
 dependencies = [
     "pydantic>=2.0.0",
     "rich>=13.0.0",
-    "openai>=1.0.0",
     "wasmtime>=48.0.0",
-    "pytest>=8.0.0",
 ]
 
 [project.optional-dependencies]
+# LLM API integration (optional — only needed for live agent reasoning)
+llm = [
+    "openai>=1.0.0",
+]
+# Wasmer SDK (Linux/macOS only — not available on Windows)
 wasmer = [
     "wasmer-sdk>=0.2.0; sys_platform != 'win32'",
 ]
+# Development & testing
 dev = [
     "pytest>=8.0.0",
 ]

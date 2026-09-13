@@ -1,4 +1,4 @@
-name: AegisAgent Security Scan — Tenki Cloud Runner
+name: AegisAgent Security Scan - Tenki Cloud Runner
 
 on:
   push:
@@ -16,14 +16,22 @@ on:
         required: false
         default: "aegis"
 
+# ─────────────────────────────────────────────────────────────
+# Shared env used by all jobs
+# ─────────────────────────────────────────────────────────────
+env:
+  PYTHONIOENCODING: "utf-8"
+  PYTHONDONTWRITEBYTECODE: "1"
+  UV_CACHE_DIR: /tmp/.uv-cache
+
 jobs:
-  # -------------------------------------------------------------------------
+  # ─────────────────────────────────────────────────────────────
   # Job 1: Unit & Integration Tests
-  # -------------------------------------------------------------------------
+  # ─────────────────────────────────────────────────────────────
   aegis-unit-tests:
-    name: 🧪 Aegis Core Tests
+    name: Aegis Core Tests
     runs-on: ubuntu-latest
-    # In production, use a Tenki Cloud self-hosted runner label:
+    # Tenki Cloud self-hosted runner (production):
     # runs-on: [self-hosted, tenki-cloud, linux]
 
     steps:
@@ -35,39 +43,49 @@ jobs:
         with:
           python-version: "3.11"
 
+      # Install uv via the official action so it is on PATH for ALL subsequent steps
       - name: Install uv
-        run: curl -LsSf https://astral.sh/uv/install.sh | sh && echo "$HOME/.local/bin" >> $GITHUB_PATH
+        uses: astral-sh/setup-uv@v5
+        with:
+          version: "latest"
+          enable-cache: true
+          cache-dependency-glob: "pyproject.toml"
 
-      - name: Create virtual environment & install dependencies
+      # Install all project deps into the system Python (no venv activation needed).
+      # --no-editable avoids a setuptools editable-install edge case on some runners.
+      # wasmtime ships a manylinux wheel, so it installs cleanly on ubuntu-latest.
+      # openai is excluded: not needed for test execution, saves ~25s install time.
+      - name: Install dependencies
         run: |
-          uv venv
-          uv pip install -e .
-          uv pip install wasmtime pydantic rich openai pytest
+          uv pip install --system \
+            "pydantic>=2.0.0" \
+            "rich>=13.0.0" \
+            "wasmtime>=48.0.0" \
+            "pytest>=8.0.0" \
+            -e . --no-deps
 
       - name: Run Wasmer Sandbox Tests
-        run: |
-          source .venv/bin/activate
-          pytest tests/test_wasmer_sandbox.py -v --tb=short
+        run: pytest tests/test_wasmer_sandbox.py -v --tb=short
 
       - name: Run Honeypot & Telemetry Tests
-        run: |
-          source .venv/bin/activate
-          pytest tests/test_honeypot.py -v --tb=short
+        run: pytest tests/test_honeypot.py -v --tb=short
 
-      - name: Upload test results
+      - name: Upload incident log (if generated)
         uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: test-results
+          name: test-incident-log
           path: "*.jsonl"
+          if-no-files-found: ignore
 
-  # -------------------------------------------------------------------------
+  # ─────────────────────────────────────────────────────────────
   # Job 2: Autonomous Red-Team Fuzz Scan (Tenki Cloud runner)
-  # -------------------------------------------------------------------------
+  # ─────────────────────────────────────────────────────────────
   aegis-fuzz-scan:
-    name: 🔬 Red-Team Fuzz Scan
+    name: Red-Team Fuzz Scan
     runs-on: ubuntu-latest
-    # In production: runs-on: [self-hosted, tenki-cloud, gpu]
+    # Tenki Cloud GPU runner (production):
+    # runs-on: [self-hosted, tenki-cloud, gpu]
     needs: aegis-unit-tests
 
     steps:
@@ -79,14 +97,24 @@ jobs:
         with:
           python-version: "3.11"
 
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          version: "latest"
+          enable-cache: true
+          cache-dependency-glob: "pyproject.toml"
+
       - name: Install dependencies
         run: |
-          curl -LsSf https://astral.sh/uv/install.sh | sh && export PATH="$HOME/.local/bin:$PATH"
-          uv venv && uv pip install -e . && uv pip install wasmtime pydantic rich pytest
+          uv pip install --system \
+            "pydantic>=2.0.0" \
+            "rich>=13.0.0" \
+            "wasmtime>=48.0.0" \
+            "pytest>=8.0.0" \
+            -e . --no-deps
 
       - name: Run Red-Team Fuzzer (Local Mode)
         run: |
-          source .venv/bin/activate
           python -m aegis.fuzzer.engine \
             --target-tool terminal_exec \
             --iterations ${{ github.event.inputs.iterations || '50' }} \
@@ -99,11 +127,11 @@ jobs:
           name: vuln-report-${{ github.run_id }}
           path: vuln_report.json
 
-  # -------------------------------------------------------------------------
+  # ─────────────────────────────────────────────────────────────
   # Job 3: Protected Agent Demo (Aegis Mode)
-  # -------------------------------------------------------------------------
+  # ─────────────────────────────────────────────────────────────
   aegis-protected-agent:
-    name: 🛡️ Protected Agent Demo
+    name: Protected Agent Demo
     runs-on: ubuntu-latest
     needs: aegis-unit-tests
 
@@ -116,34 +144,45 @@ jobs:
         with:
           python-version: "3.11"
 
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          version: "latest"
+          enable-cache: true
+          cache-dependency-glob: "pyproject.toml"
+
       - name: Install dependencies
         run: |
-          curl -LsSf https://astral.sh/uv/install.sh | sh && export PATH="$HOME/.local/bin:$PATH"
-          uv venv && uv pip install -e . && uv pip install wasmtime pydantic rich
+          uv pip install --system \
+            "pydantic>=2.0.0" \
+            "rich>=13.0.0" \
+            "wasmtime>=48.0.0" \
+            -e . --no-deps
 
       - name: Run AegisAgent Protected Mode
         run: |
-          source .venv/bin/activate
           python -m aegis.agent.runner \
             --mode aegis \
             --input tasks/issue_402.txt
 
-      - name: Assert No Incidents Indicate Host Compromise
+      - name: Assert no uncontained critical incidents
         run: |
-          source .venv/bin/activate
-          python -c "
+          python - <<'EOF'
           import json, sys, pathlib
-          log = pathlib.Path('aegis_incidents.jsonl')
+          log = pathlib.Path("aegis_incidents.jsonl")
           if not log.exists():
-              print('No incidents log found — assuming clean run.')
+              print("No incidents log found - assuming clean run.")
               sys.exit(0)
           incidents = [json.loads(l) for l in log.read_text().strip().splitlines() if l]
-          host_breach = [i for i in incidents if i.get('severity') == 'CRITICAL' and not i.get('trapped', True)]
+          host_breach = [
+              i for i in incidents
+              if i.get("severity") == "CRITICAL" and not i.get("trapped", True)
+          ]
           if host_breach:
-              print(f'FAIL: {len(host_breach)} uncontained critical incident(s) detected!')
+              print(f"FAIL: {len(host_breach)} uncontained critical incident(s) detected!")
               sys.exit(1)
-          print(f'PASS: {len(incidents)} incident(s) logged, all contained by Wasmer sandbox.')
-          "
+          print(f"PASS: {len(incidents)} incident(s) logged, all contained by Wasmer sandbox.")
+          EOF
 
       - name: Upload Incident Log
         uses: actions/upload-artifact@v4
@@ -151,12 +190,13 @@ jobs:
         with:
           name: incident-log-${{ github.run_id }}
           path: aegis_incidents.jsonl
+          if-no-files-found: ignore
 
-  # -------------------------------------------------------------------------
-  # Job 4: Build & Push Tenki Cloud Docker Image
-  # -------------------------------------------------------------------------
+  # ─────────────────────────────────────────────────────────────
+  # Job 4: Build & Smoke-Test Tenki Cloud Docker Image
+  # ─────────────────────────────────────────────────────────────
   tenki-cloud-deploy:
-    name: ☁️ Tenki Cloud Deploy
+    name: Tenki Cloud Deploy
     runs-on: ubuntu-latest
     needs: [aegis-fuzz-scan, aegis-protected-agent]
     if: github.ref == 'refs/heads/main'
@@ -179,12 +219,19 @@ jobs:
       - name: Smoke-test the SIEM container
         run: |
           docker run -d --name aegis-siem -p 8080:8080 aegis-agent-siem:latest
-          sleep 5
-          curl -f http://localhost:8080/health || (docker logs aegis-siem && exit 1)
-          echo "SIEM health check passed"
+          # Wait up to 20s for the container to become healthy
+          for i in $(seq 1 10); do
+            if curl -sf http://localhost:8080/health > /dev/null; then
+              echo "SIEM health check passed after ${i}s"
+              break
+            fi
+            echo "Waiting for SIEM to start... (${i}s)"
+            sleep 2
+          done
+          curl -sf http://localhost:8080/health || (docker logs aegis-siem && exit 1)
           docker stop aegis-siem
 
-      # In production, push to Tenki Cloud container registry:
+      # Uncomment to push to Tenki Cloud container registry on release:
       # - name: Push to Tenki Cloud Registry
       #   run: |
       #     docker tag aegis-agent-siem:latest registry.tenki.cloud/your-org/aegis-agent-siem:latest
