@@ -1,0 +1,16 @@
+﻿{
+  "version": 2,
+  "cleanUrls": true,
+  "routes": [
+    {
+      "src": "/api/(.*)",
+      "status": 200,
+      "headers": { "content-type": "application/json" },
+      "dest": "/vuln_report.json"
+    },
+    {
+      "src": "/(.*)",
+      "dest": "/dashboard/index.html"
+    }
+  ]
+}
