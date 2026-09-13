@@ -1,5 +1,7 @@
 # AegisAgent: Autonomous Red-Team Fuzzing & WebAssembly Runtime Containment for AI Agents
 
+[![AegisAgent CI](https://github.com/MynameisKoi/aegis-agent/actions/workflows/tenki_security_scan.yml/badge.svg)](https://github.com/MynameisKoi/aegis-agent/actions)
+
 > Built for the AI Security Hackathon 2026 (San Francisco) — Wasmer Track & Open Security Track.
 
 AegisAgent is a dual-sided security engine for LLM agentic toolchains. It solves the critical risk of autonomous agent compromise (indirect prompt injection, unconstrained tool use, and malicious code generation) by pairing **proactive adversarial fuzzing** with **deterministic, in-process runtime containment via the Wasmer SDK**.
@@ -144,7 +146,19 @@ When implementing the system components, follow these concrete architectural rul
 
 ## 5. Running the Demo
 
-### Step 1: Run the Unprotected Baseline (The Exploit)
+### Quickstart: Unified 3-Act Interactive Demo
+Run the complete presentation walkthrough (Act 1: The Exploit, Act 2: Autonomous Fuzzer, Act 3: Live Containment & Forensics):
+```bash
+# Interactive mode (step-by-step with prompts between acts):
+python demo.py
+
+# Automated presentation mode:
+python demo.py --auto
+```
+
+### Individual Step Execution
+
+#### Step 1: Run the Unprotected Baseline (The Exploit)
 ```bash
 python -m aegis.agent.runner --mode unprotected --input tasks/issue_402.txt
 ```

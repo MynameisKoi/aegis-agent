@@ -27,7 +27,14 @@ from aegis.core.policy import STRICT_SANDBOX_POLICY
 from aegis.core.sandbox import WasmerSandbox
 from aegis.fuzzer.mutations import Mutation, MutationLibrary
 
+if sys.platform == "win32":
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    if hasattr(sys.stderr, "reconfigure"):
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+
 console = Console()
+
 
 DEFAULT_TENKI_COORDINATOR = "http://localhost:8080/api/fuzzer/jobs"
 
@@ -139,7 +146,7 @@ def run_local_fuzzer(
         console=console,
         transient=True,
     ) as progress:
-        task = progress.add_task("Fuzzing sandbox boundary…", total=len(mutations))
+        task = progress.add_task("Fuzzing sandbox boundary...", total=len(mutations))
 
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             future_to_mut = {executor.submit(probe_mutation, m): m for m in mutations}
@@ -209,7 +216,7 @@ def run_tenki_distributed(
 
 def render_vuln_report(report: VulnReport) -> None:
     """Render the vulnerability report in the terminal."""
-    console.print(f"\n[bold bright_cyan]╔══ VULNERABILITY REPORT ══ {report.run_id} ══╗[/]")
+    console.print(f"\n[bold bright_cyan][=== VULNERABILITY REPORT === {report.run_id} ===][/]")
 
     # Summary stats
     table = Table(box=box.ROUNDED, border_style="bright_cyan", show_header=True, title="[bold]Run Summary[/]")

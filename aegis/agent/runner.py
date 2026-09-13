@@ -27,6 +27,12 @@ from rich import box
 from aegis.agent.tools import AgentTools, ToolResult
 from aegis.core.telemetry import get_dispatcher
 
+if sys.platform == "win32":
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    if hasattr(sys.stderr, "reconfigure"):
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+
 console = Console()
 
 
@@ -126,9 +132,9 @@ def plan_steps(task_text: str, injections: List[str]) -> List[AgentStep]:
 def render_header(mode: str, task_file: str) -> None:
     color = "bright_red" if mode == "unprotected" else "bright_green"
     mode_label = (
-        "[bold bright_red]⚠  UNPROTECTED MODE — HOST SUBPROCESS ACTIVE[/]"
+        "[bold bright_red][!] UNPROTECTED MODE - HOST SUBPROCESS ACTIVE[/]"
         if mode == "unprotected"
-        else "[bold bright_green]🛡  AEGIS MODE — WASMER WASI SANDBOX ACTIVE[/]"
+        else "[bold bright_green][AEGIS] SHIELD MODE - WASMER WASI SANDBOX ACTIVE[/]"
     )
     console.print(Panel(
         f"{mode_label}\n[dim]Task:[/dim] {task_file}",
@@ -140,14 +146,14 @@ def render_header(mode: str, task_file: str) -> None:
 
 def render_step(step_num: int, step: AgentStep, mode: str) -> None:
     console.print(Rule(f"[bold yellow]Step {step_num}[/]", style="dim yellow"))
-    console.print(f"  [dim cyan]🤔 Agent Thought:[/] {step.thought}")
+    console.print(f"  [dim cyan][Agent Thought]:[/] {step.thought}")
     console.print(f"  [dim]Tool:[/] [bold]{step.tool}[/]  Args: [italic]{step.args}[/]")
 
 
 def render_result(result: ToolResult, mode: str) -> None:
     if result.trapped or result.canary_tripped:
         console.print(Panel(
-            f"[bold bright_red]🚨 CONTAINMENT TRIGGERED[/]\n"
+            f"[bold bright_red][!] CONTAINMENT TRIGGERED[/]\n"
             f"[red]Blocked Syscall:[/] {result.stderr[:300]}\n"
             f"[yellow]Incident ID:[/] {result.incident_id or 'N/A'}\n"
             f"[yellow]Canary Tripped:[/] {result.canary_tripped}\n"
@@ -185,12 +191,12 @@ def render_summary(mode: str, steps: List[AgentStep], injection_count: int) -> N
         r = step.result
         if r is None:
             status = "[dim]skipped[/]"
-            dur = "—"
+            dur = "-"
         elif r.trapped or r.canary_tripped:
-            status = "[bright_red]🚫 TRAPPED[/]"
+            status = "[bright_red][TRAPPED][/]"
             dur = f"{r.duration_ms:.2f}ms"
         else:
-            status = "[bright_green]✓ OK[/]"
+            status = "[bright_green][OK][/]"
             dur = f"{r.duration_ms:.2f}ms"
         table.add_row(str(i), step.tool, status, dur)
 
@@ -199,7 +205,7 @@ def render_summary(mode: str, steps: List[AgentStep], injection_count: int) -> N
     color = "bright_red" if mode == "unprotected" else "bright_green"
     if mode == "unprotected":
         console.print(Panel(
-            f"[bold bright_red]💥 HOST COMPROMISED[/]\n"
+            f"[bold bright_red][!] HOST COMPROMISED[/]\n"
             f"[red]{injection_count} prompt injection(s) executed on host machine.[/]\n"
             "[dim]Credential exfiltration and network egress succeeded without any guardrails.[/]",
             border_style="bright_red",
@@ -207,7 +213,7 @@ def render_summary(mode: str, steps: List[AgentStep], injection_count: int) -> N
         ))
     else:
         console.print(Panel(
-            f"[bold bright_green]🛡  ATTACK CONTAINED[/]\n"
+            f"[bold bright_green][AEGIS] ATTACK CONTAINED[/]\n"
             f"[green]{injection_count} prompt injection(s) intercepted by Wasmer runtime.[/]\n"
             "[dim]All exfiltration attempts trapped. Zero host compromise. Forensic telemetry emitted.[/]",
             border_style="bright_green",
@@ -233,7 +239,8 @@ def run_agent(mode: str, input_file: str) -> None:
     injections = extract_injections(task_text)
     if injections:
         console.print(Panel(
-            f"[bold yellow]⚡ {len(injections)} Indirect Prompt Injection(s) Detected[/]\n"
+            f"[bold yellow][!] {len(injections)} Indirect Prompt Injection(s) Detected[/]\n"
+
             + "\n".join(f"  [dim]{inj[:120]}[/]" for inj in injections),
             title="[bold]Injection Analysis[/]",
             border_style="yellow",
