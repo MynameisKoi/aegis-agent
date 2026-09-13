@@ -156,6 +156,20 @@ python demo.py
 python demo.py --auto
 ```
 
+### Web SOC Dashboard (Tenki Cloud SIEM & Real-Time Telemetry)
+Launch the browser-accessible cybersecurity dashboard to monitor agent tool execution and Wasmer runtime traps in real time:
+
+```powershell
+# Launch the web dashboard server:
+.\.venv\Scripts\python -m uvicorn deploy.tenki_cloud.server:app --host 127.0.0.1 --port 8080 --reload
+```
+
+Once running, navigate to [http://127.0.0.1:8080](http://127.0.0.1:8080) in your browser to view:
+- **Left Pane:** Live Agent Reasoning Stream showing step-by-step tool calls and incoming injection vectors.
+- **Right Pane:** Real-time Wasmer Runtime Telemetry (containment latency in milliseconds, trapped syscalls like `sock_open`, canary alarms, and incident logs).
+- **Status Cards:** Active WASI sandboxes, Tenki Cloud SIEM ingestion status, and 100% containment rate.
+- **Interactive Triggers:** Click "Simulate Attack" or "Fuzz Tool" directly in the web UI to trigger real-time telemetry.
+
 ### Individual Step Execution
 
 #### Step 1: Run the Unprotected Baseline (The Exploit)

@@ -1,7 +1,8 @@
-﻿__pycache__/
+__pycache__/
 *.py[cod]
 *.class
 .venv/
 *.jsonl
 vuln_report.json
 .env
+!tasks/mock_env/.env

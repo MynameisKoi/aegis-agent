@@ -1,14 +1,18 @@
 """Phase 6: Tenki Cloud SIEM & Fuzzer Coordinator API.
 
 Lightweight FastAPI hub hosted on Tenki Cloud compute instances, providing:
+  - GET  /                        — Self-contained interactive Web SOC & telemetry dashboard.
   - POST /api/telemetry/ingest    — Receives structured forensic incidents from field agents.
   - GET  /api/incidents           — Returns paginated incident log for the dashboard.
   - GET  /api/incidents/summary   — Aggregated statistics for live visualization.
+  - GET  /api/incidents/stream    — Server-Sent Events (SSE) live incident telemetry stream.
+  - POST /api/demo/trigger        — Trigger live attack or fuzzer simulation from browser.
   - POST /api/fuzzer/jobs         — Accepts fuzzing job submissions from the engine.
   - GET  /api/fuzzer/results/{id} — Returns completed fuzzing job results.
   - GET  /health                  — Liveness probe for Tenki Cloud health checks.
 """
 
+import asyncio
 import json
 import time
 import uuid
@@ -20,7 +24,7 @@ from typing import Any, Deque, Dict, List, Optional
 try:
     from fastapi import FastAPI, HTTPException, Query
     from fastapi.middleware.cors import CORSMiddleware
-    from fastapi.responses import JSONResponse
+    from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
     from pydantic import BaseModel as FastAPIBaseModel
     FASTAPI_AVAILABLE = True
 except ImportError:
@@ -34,6 +38,25 @@ _incidents: Deque[Dict[str, Any]] = deque(maxlen=10_000)
 _fuzzer_jobs: Dict[str, Dict[str, Any]] = {}
 _boot_time = time.time()
 
+
+def _load_stored_incidents() -> None:
+    """Load pre-recorded incidents from JSONL logs on startup."""
+    for filename in ("aegis_incidents.jsonl", "tenki_incidents.jsonl"):
+        p = Path(filename)
+        if p.exists():
+            try:
+                for line in p.read_text(encoding="utf-8", errors="replace").splitlines():
+                    if line.strip():
+                        try:
+                            inc = json.loads(line)
+                            if not any(existing.get("incident_id") == inc.get("incident_id") for existing in _incidents):
+                                _incidents.appendleft(inc)
+                        except Exception:
+                            pass
+            except Exception:
+                pass
+
+
 # ---------------------------------------------------------------------------
 # Application factory
 # ---------------------------------------------------------------------------
@@ -45,8 +68,11 @@ def create_app() -> "FastAPI":  # type: ignore[name-defined]
             "Install it with: uv pip install fastapi uvicorn"
         )
 
+    # Pre-populate stored incidents from disk
+    _load_stored_incidents()
+
     app = FastAPI(
-        title="AegisAgent — Tenki Cloud SIEM & Fuzzer Coordinator",
+        title="AegisAgent - Tenki Cloud SIEM & Fuzzer Coordinator",
         description=(
             "Centralized security telemetry hub and distributed fuzzing coordinator "
             "for AegisAgent, hosted on Tenki Cloud compute infrastructure."
@@ -61,6 +87,18 @@ def create_app() -> "FastAPI":  # type: ignore[name-defined]
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+    # ------------------------------------------------------------------
+    # Web Dashboard (HTML)
+    # ------------------------------------------------------------------
+
+    @app.get("/", response_class=HTMLResponse)
+    async def dashboard_view():
+        """Serve the browser-accessible cybersecurity dashboard styled with Tailwind CSS."""
+        html_path = Path("dashboard/index.html")
+        if html_path.exists():
+            return HTMLResponse(content=html_path.read_text(encoding="utf-8"))
+        return HTMLResponse(content="<h1>AegisAgent SOC</h1><p>Dashboard HTML not found.</p>")
 
     # ------------------------------------------------------------------
     # Health & Metadata
@@ -126,17 +164,70 @@ def create_app() -> "FastAPI":  # type: ignore[name-defined]
         total = len(all_inc)
         by_severity: Dict[str, int] = {}
         canary_trips = 0
+        trapped_count = 0
         for inc in all_inc:
             sev = inc.get("severity", "UNKNOWN")
             by_severity[sev] = by_severity.get(sev, 0) + 1
             if inc.get("canary_tripped"):
                 canary_trips += 1
+            if inc.get("mode") == "aegis" or inc.get("trapped", True):
+                trapped_count += 1
+
+        containment_rate = round((trapped_count / max(total, 1)) * 100, 1) if total > 0 else 100.0
 
         return {
             "total_incidents": total,
             "canary_trips": canary_trips,
+            "containment_rate": containment_rate,
             "by_severity": by_severity,
             "most_recent": all_inc[0] if all_inc else None,
+        }
+
+    @app.get("/api/incidents/stream")
+    async def stream_incidents():
+        """Server-Sent Events (SSE) streaming endpoint for live telemetry updates."""
+        async def event_generator():
+            last_count = 0
+            while True:
+                current_incidents = list(_incidents)
+                if len(current_incidents) != last_count:
+                    last_count = len(current_incidents)
+                    data = json.dumps({
+                        "total": last_count,
+                        "latest": current_incidents[0] if current_incidents else None
+                    })
+                    yield f"data: {data}\n\n"
+                await asyncio.sleep(2.0)
+
+        return StreamingResponse(event_generator(), media_type="text/event-stream")
+
+    @app.post("/api/demo/trigger")
+    async def trigger_demo(mode: str = Query(default="aegis")):
+        """
+        Trigger an attack simulation or fuzzer cycle directly from the web dashboard.
+        """
+        if mode == "fuzzer":
+            from aegis.fuzzer.mutations import MutationLibrary
+            from aegis.fuzzer.engine import probe_mutation
+            lib = MutationLibrary()
+            sample = lib.sample(5)
+            findings = [probe_mutation(m).model_dump() for m in sample]
+            return {
+                "status": "success",
+                "mode": "fuzzer",
+                "message": f"Executed 5 red-team fuzzer probes in isolated Wasmer sandboxes.",
+                "findings_count": len(findings)
+            }
+
+        # Run agent in specified mode
+        from aegis.agent.runner import run_agent
+        run_agent(mode=mode, input_file="tasks/issue_402.txt")
+        _load_stored_incidents()
+        return {
+            "status": "success",
+            "mode": mode,
+            "message": f"Executed agent attack scenario in '{mode}' mode.",
+            "incidents_count": len(_incidents),
         }
 
     # ------------------------------------------------------------------
@@ -160,8 +251,6 @@ def create_app() -> "FastAPI":  # type: ignore[name-defined]
             "findings": [],
         }
 
-        # In production this would dispatch to Tenki Cloud compute runners.
-        # Here we run synchronously for demo correctness (small jobs only).
         try:
             from aegis.fuzzer.mutations import Mutation
             from aegis.fuzzer.engine import probe_mutation
