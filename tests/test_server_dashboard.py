@@ -93,13 +93,54 @@ def test_fuzzer_report_endpoint(client):
 
 
 def test_walkthrough_tab_elements(client):
-    """Verify that the dashboard HTML contains the 3-Act walkthrough and architectural comparison."""
+    """Verify that the dashboard HTML contains the 3-Act walkthrough, sponsor tab, and architectural comparison."""
     resp = client.get("/")
     assert resp.status_code == 200
     html = resp.text
     assert "3-Act Attack & Defense Walkthrough" in html
+    assert "Sponsor Verification & Telemetry Audit" in html
     assert "The Exploit — Unprotected Baseline" in html
     assert "Autonomous Red-Teaming — Parallel Wasmer Micro-Sandboxes" in html
     assert "Live Containment & Forensics — Wasmer Active Shield" in html
     assert "Architectural Comparison Matrix" in html
+    assert "Wasmer SDK Runtime Verification" in html
+    assert "Tenki Cloud Infrastructure & SIEM" in html
+
+
+
+def test_sponsor_proof_endpoint(client):
+    """Verify that GET /api/sponsor/proof returns structured Wasmer and Tenki audit proof."""
+    resp = client.get("/api/sponsor/proof")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "wasmer_runtime" in data
+    assert "tenki_cloud" in data
+
+    wasmer = data["wasmer_runtime"]
+    assert wasmer["linear_memory"]["allocated_mb"] == 64
+    assert any("sock_open" in cap for cap in wasmer["stripped_capabilities"])
+    assert any(mount["guest_path"] == "/workspace" for mount in wasmer["vfs_preopened_dirs"])
+    assert wasmer["benchmarks"]["trap_latency_ms"] < 1.0
+    assert len(wasmer["live_wasi_traps"]) >= 1
+
+    tenki = data["tenki_cloud"]
+    assert len(tenki["active_worker_nodes"]) >= 2
+    assert tenki["siem_endpoint"] == "/api/telemetry/ingest"
+    assert "aegis-agent-siem" in tenki["container_metadata"]["image"]
+
+
+def test_raw_telemetry_endpoint(client):
+    """Verify raw unmanipulated telemetry streaming in json and jsonl formats."""
+    resp_json = client.get("/api/raw-telemetry?format=json")
+    assert resp_json.status_code == 200
+    data = resp_json.json()
+    assert "records" in data
+    assert data["total"] >= 1
+
+    resp_jsonl = client.get("/api/raw-telemetry?format=jsonl")
+    assert resp_jsonl.status_code == 200
+    assert "text/plain" in resp_jsonl.headers["content-type"]
+    lines = [l for l in resp_jsonl.text.splitlines() if l.strip()]
+    assert len(lines) >= 1
+
 
