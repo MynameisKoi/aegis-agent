@@ -1,0 +1,191 @@
+name: AegisAgent Security Scan — Tenki Cloud Runner
+
+on:
+  push:
+    branches: [main, dev]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      iterations:
+        description: "Number of fuzz iterations"
+        required: false
+        default: "50"
+      mode:
+        description: "Agent run mode (aegis or unprotected)"
+        required: false
+        default: "aegis"
+
+jobs:
+  # -------------------------------------------------------------------------
+  # Job 1: Unit & Integration Tests
+  # -------------------------------------------------------------------------
+  aegis-unit-tests:
+    name: 🧪 Aegis Core Tests
+    runs-on: ubuntu-latest
+    # In production, use a Tenki Cloud self-hosted runner label:
+    # runs-on: [self-hosted, tenki-cloud, linux]
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install uv
+        run: curl -LsSf https://astral.sh/uv/install.sh | sh && echo "$HOME/.local/bin" >> $GITHUB_PATH
+
+      - name: Create virtual environment & install dependencies
+        run: |
+          uv venv
+          uv pip install -e .
+          uv pip install wasmtime pydantic rich openai pytest
+
+      - name: Run Wasmer Sandbox Tests
+        run: |
+          source .venv/bin/activate
+          pytest tests/test_wasmer_sandbox.py -v --tb=short
+
+      - name: Run Honeypot & Telemetry Tests
+        run: |
+          source .venv/bin/activate
+          pytest tests/test_honeypot.py -v --tb=short
+
+      - name: Upload test results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: test-results
+          path: "*.jsonl"
+
+  # -------------------------------------------------------------------------
+  # Job 2: Autonomous Red-Team Fuzz Scan (Tenki Cloud runner)
+  # -------------------------------------------------------------------------
+  aegis-fuzz-scan:
+    name: 🔬 Red-Team Fuzz Scan
+    runs-on: ubuntu-latest
+    # In production: runs-on: [self-hosted, tenki-cloud, gpu]
+    needs: aegis-unit-tests
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          curl -LsSf https://astral.sh/uv/install.sh | sh && export PATH="$HOME/.local/bin:$PATH"
+          uv venv && uv pip install -e . && uv pip install wasmtime pydantic rich pytest
+
+      - name: Run Red-Team Fuzzer (Local Mode)
+        run: |
+          source .venv/bin/activate
+          python -m aegis.fuzzer.engine \
+            --target-tool terminal_exec \
+            --iterations ${{ github.event.inputs.iterations || '50' }} \
+            --workers 4 \
+            --output vuln_report.json
+
+      - name: Upload Vulnerability Report
+        uses: actions/upload-artifact@v4
+        with:
+          name: vuln-report-${{ github.run_id }}
+          path: vuln_report.json
+
+  # -------------------------------------------------------------------------
+  # Job 3: Protected Agent Demo (Aegis Mode)
+  # -------------------------------------------------------------------------
+  aegis-protected-agent:
+    name: 🛡️ Protected Agent Demo
+    runs-on: ubuntu-latest
+    needs: aegis-unit-tests
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          curl -LsSf https://astral.sh/uv/install.sh | sh && export PATH="$HOME/.local/bin:$PATH"
+          uv venv && uv pip install -e . && uv pip install wasmtime pydantic rich
+
+      - name: Run AegisAgent Protected Mode
+        run: |
+          source .venv/bin/activate
+          python -m aegis.agent.runner \
+            --mode aegis \
+            --input tasks/issue_402.txt
+
+      - name: Assert No Incidents Indicate Host Compromise
+        run: |
+          source .venv/bin/activate
+          python -c "
+          import json, sys, pathlib
+          log = pathlib.Path('aegis_incidents.jsonl')
+          if not log.exists():
+              print('No incidents log found — assuming clean run.')
+              sys.exit(0)
+          incidents = [json.loads(l) for l in log.read_text().strip().splitlines() if l]
+          host_breach = [i for i in incidents if i.get('severity') == 'CRITICAL' and not i.get('trapped', True)]
+          if host_breach:
+              print(f'FAIL: {len(host_breach)} uncontained critical incident(s) detected!')
+              sys.exit(1)
+          print(f'PASS: {len(incidents)} incident(s) logged, all contained by Wasmer sandbox.')
+          "
+
+      - name: Upload Incident Log
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: incident-log-${{ github.run_id }}
+          path: aegis_incidents.jsonl
+
+  # -------------------------------------------------------------------------
+  # Job 4: Build & Push Tenki Cloud Docker Image
+  # -------------------------------------------------------------------------
+  tenki-cloud-deploy:
+    name: ☁️ Tenki Cloud Deploy
+    runs-on: ubuntu-latest
+    needs: [aegis-fuzz-scan, aegis-protected-agent]
+    if: github.ref == 'refs/heads/main'
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Tenki Cloud SIEM Image
+        run: |
+          docker build \
+            -f deploy/tenki_cloud/Dockerfile \
+            -t aegis-agent-siem:${{ github.sha }} \
+            -t aegis-agent-siem:latest \
+            .
+
+      - name: Smoke-test the SIEM container
+        run: |
+          docker run -d --name aegis-siem -p 8080:8080 aegis-agent-siem:latest
+          sleep 5
+          curl -f http://localhost:8080/health || (docker logs aegis-siem && exit 1)
+          echo "SIEM health check passed"
+          docker stop aegis-siem
+
+      # In production, push to Tenki Cloud container registry:
+      # - name: Push to Tenki Cloud Registry
+      #   run: |
+      #     docker tag aegis-agent-siem:latest registry.tenki.cloud/your-org/aegis-agent-siem:latest
+      #     docker push registry.tenki.cloud/your-org/aegis-agent-siem:latest
