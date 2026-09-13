@@ -20,6 +20,7 @@ on:
 # Shared env used by all jobs
 # ─────────────────────────────────────────────────────────────
 env:
+  PYTHONPATH: "."
   PYTHONIOENCODING: "utf-8"
   PYTHONDONTWRITEBYTECODE: "1"
   UV_CACHE_DIR: /tmp/.uv-cache
@@ -61,14 +62,13 @@ jobs:
             "pydantic>=2.0.0" \
             "rich>=13.0.0" \
             "wasmtime>=48.0.0" \
-            "pytest>=8.0.0" \
-            -e . --no-deps
+            "pytest>=8.0.0"
 
       - name: Run Wasmer Sandbox Tests
-        run: pytest tests/test_wasmer_sandbox.py -v --tb=short
+        run: python -m pytest tests/test_wasmer_sandbox.py -v --tb=short
 
       - name: Run Honeypot & Telemetry Tests
-        run: pytest tests/test_honeypot.py -v --tb=short
+        run: python -m pytest tests/test_honeypot.py -v --tb=short
 
       - name: Upload incident log (if generated)
         uses: actions/upload-artifact@v4
@@ -110,8 +110,7 @@ jobs:
             "pydantic>=2.0.0" \
             "rich>=13.0.0" \
             "wasmtime>=48.0.0" \
-            "pytest>=8.0.0" \
-            -e . --no-deps
+            "pytest>=8.0.0"
 
       - name: Run Red-Team Fuzzer (Local Mode)
         run: |
@@ -156,8 +155,7 @@ jobs:
           uv pip install --system \
             "pydantic>=2.0.0" \
             "rich>=13.0.0" \
-            "wasmtime>=48.0.0" \
-            -e . --no-deps
+            "wasmtime>=48.0.0"
 
       - name: Run AegisAgent Protected Mode
         run: |
